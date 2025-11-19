@@ -32,4 +32,4 @@ Partendo dal download e dalla pulizia dei dati, il tutorial guida attraverso l'a
 * Stratificare i pazienti in gruppi di rischio.
 
 ## Basi teoriche
-Questo tutorial mette in pratica gli argomenti presentati nella parte Teorica le cui slide sono disponibili nel file CAIMOD_Tutorial.pdf
+Questo tutorial mette in pratica gli argomenti presentati nella parte Teorica le cui slide sono disponibili nel file Teoria.pdf
