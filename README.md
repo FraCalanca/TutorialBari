@@ -33,3 +33,21 @@ Partendo dal download e dalla pulizia dei dati, il tutorial guida attraverso l'a
 
 ## Basi teoriche
 Questo tutorial mette in pratica gli argomenti presentati nella parte Teorica le cui slide sono disponibili nel file Teoria.pdf
+
+## Istruzioni pratiche
+Per svolgere il seguente tutorial è necessario **installare**
+
+-   il software **R** disponibile per il proprio sistema operativo [CRAN IT Mirror](https://cran.mirror.garr.it/CRAN/), e
+
+-   l'IDE **RStudio** distribuito da [posit](https://posit.co/download/rstudio-desktop/).
+
+Scaricare il file TutorialPratico.Rdm e il file HV_genes.csv.
+
+**NB.** I due file devono essere nella working directory di R.\
+Consiglio: Crea una cartella Tutorial, scarica i file e spostali nella cartella.
+
+In R
+```
+setwd(path della cartella)
+```
+Apri il file .Rmd
