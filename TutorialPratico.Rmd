@@ -10,19 +10,11 @@ output:
     fontsize: 11pt
 ---
 
-![](images/banner.png)
-
 # Fonte Dati di Sopravvivenza
 
 *The Cancer Genome Atlas Program* (**TCGA**) è un programma americano che ha caratterizzato 33 tipi di tumori e messo a disposizione della comunità scientifica i dati risultanti. L'obiettivo principale del progetto era creare un catalogo completo delle mutazioni genetiche e delle alterazioni molecolari responsabili dei vari tipi di cancro. Tra questi è incluso **BRCA**.
 
 [***Linkedomics***](https://www.linkedomics.org/login.php) è un portale web che ha integrato i dati del TCGA e di un altro programma, e mette a disposizione dati già pre-processati.
-
-# BReast invasive CArcinoma
-
-![](images/carcinoma.png)
-
-![](images/classificazione.png)
 
 # Requisiti per il tutorial
 
@@ -261,8 +253,6 @@ Un HR \< 1 è protettivo verso l'evento. Un HR di 0.5758 significa che il gruppo
 L’RNA-seq (RNA sequencing) è una tecnologia che permette di misurare l’espressione di tutti i geni rilevabili in una cellula, in un tessuto o in un organismo.
 
 ## Come funziona (a grandi linee)?
-
-![](images/rna-seq.png)
 
 1.  Estrazione dell’RNA dalle cellule o dai tessuti (es. da campioni tumorali e/o sani).
 
