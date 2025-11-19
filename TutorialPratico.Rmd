@@ -1,0 +1,525 @@
+---
+title: "Analisi di Sopravvivenza in R"
+subtitle: "Un Caso Studio su Breast Cancer"
+author: "Calanca Francesca, Raiconi Andrea, Angelini Claudia"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    fontsize: 11pt
+---
+
+![](images/banner.png)
+
+# Fonte Dati di Sopravvivenza
+
+*The Cancer Genome Atlas Program* (**TCGA**) è un programma americano che ha caratterizzato 33 tipi di tumori e messo a disposizione della comunità scientifica i dati risultanti. L'obiettivo principale del progetto era creare un catalogo completo delle mutazioni genetiche e delle alterazioni molecolari responsabili dei vari tipi di cancro. Tra questi è incluso **BRCA**.
+
+[***Linkedomics***](https://www.linkedomics.org/login.php) è un portale web che ha integrato i dati del TCGA e di un altro programma, e mette a disposizione dati già pre-processati.
+
+# BReast invasive CArcinoma
+
+![](images/carcinoma.png)
+
+![](images/classificazione.png)
+
+# Requisiti per il tutorial
+
+Per svolgere il seguente tutorial è necessario [installare]{.underline}:
+
+-   il software **R** disponibile per il proprio sistema operativo [CRAN IT Mirror](https://cran.mirror.garr.it/CRAN/), e
+
+-   l'IDE **RStudio** distribuito da [posit](https://posit.co/download/rstudio-desktop/).
+
+## Pacchetti R richiesti
+
+```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("TCGAbiolinks")
+library("TCGAbiolinks")
+
+require(reader)
+require(dplyr)
+require(janitor)
+require(ggplot2)
+require(survival)
+require(survminer)
+require(glmnet)
+```
+
+# Download Dati Clinici
+
+Il pacchetto R/Bioconductor `TCGA Biolinks` permette di scaricare direttamente in R i dataset presenti in Linkedomics.
+
+```{r clinical, echo=TRUE}
+# Query per i dati clinici
+TCGA_BRCA_clinical = getLinkedOmicsData(
+  project = "TCGA-BRCA",
+  dataset = "Clinical"
+)
+
+dim(TCGA_BRCA_clinical)
+```
+
+## Visualizzazione e Trasformazione
+
+```{r clinical2, message=FALSE, warning=FALSE}
+# Visualizziamo i nomi delle colonne (attributi)
+TCGA_BRCA_clinical$attrib_name
+
+# Visualizziamo i dati di sopravvivenza (righe 18-20, per semplificare colonne 1-5)
+TCGA_BRCA_clinical[18:20, 1:5]
+```
+
+**Nota.** In caso di "overall_survival", l'evento considerato nell' analisi di sopravvivenza è la morte del paziente.
+
+```{r clinical3}
+# Trasponiamo e puliamo i dati per avere un dataframe pazienti x dati clinici
+TCGA_BRCA_clinical = t(TCGA_BRCA_clinical) %>%
+  as.data.frame() %>%
+  janitor::row_to_names(row_number = 1) %>%
+  mutate(across(everything(), ~ type.convert(as.character(.), as.is = TRUE)))
+
+dim(TCGA_BRCA_clinical)
+```
+
+### Pulizia Dati
+
+```{r preprocessing}
+# Vediamo quanti NA abbiamo nei dati di sopravvvenza
+print(paste("NA tempi sopravvivenza:", sum(is.na(TCGA_BRCA_clinical$overall_survival))))
+print(paste("NA eventi:", sum(is.na(TCGA_BRCA_clinical$status))))
+
+# Rimuoviamo i pazienti con dati di sopravvivenza mancanti
+TCGA_BRCA_clinical = TCGA_BRCA_clinical[
+  !is.na(TCGA_BRCA_clinical$overall_survival) & 
+    !is.na(TCGA_BRCA_clinical$status),]
+
+dim(TCGA_BRCA_clinical)
+```
+
+### Censoring plot
+
+Il censoring plot ci mostra un summary dei dati di sopravvivenza, possiamo visualizzare i tempi (ascisse) e la presenza dell'evento o del censoring.
+
+Usiamo solo i primi 30 pazienti per un plot più chiaro.
+
+```{r censoring_plot, echo=TRUE, fig.height=5, fig.width=8, message=FALSE, warning=FALSE}
+clin = TCGA_BRCA_clinical[1:30,]
+clin = clin %>% arrange(overall_survival) # ordiniamo per tempi
+ID = 1:nrow(clin)
+
+clin %>%
+  ggplot(
+    aes(y = ID, x = overall_survival, shape = factor(status), color = factor(status))
+  ) +
+  geom_segment(aes(x = overall_survival, y = ID, xend = 0, yend = ID), linewidth = 2) +
+  geom_point(size=3) +
+  labs(x = "Days", y = "Patients") +
+  scale_shape_discrete(name = "Status", labels = c("Censored","Dead")) +
+  scale_color_manual(
+    name = "Status",
+    values = c("0" = "skyblue1", "1" = "red"),
+    labels = c("0" = "Censored", "1" = "Dead")
+  ) +
+  scale_x_continuous(
+    breaks = seq(0, max(clin$overall_survival, na.rm = TRUE), by = 180),    
+    limits = c(0, max(clin$overall_survival, na.rm = TRUE))            
+  ) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+## Creazione Oggetto Surv
+
+La funzione `Surv()` dal pacchetto `survival` combina i due vettori:
+
+1.  **Time:** Il tempo misurato durante lo studio clinico (di sopravvivenza o fino all'ultimo rilevamento).
+2.  **Event:** L'indicatore di stato (1 se l'evento è accaduto, 0 se il dato è censurato).
+
+```{r surv_obj}
+# Creare l'oggetto Surv
+surv_object = Surv(
+  time = TCGA_BRCA_clinical$overall_survival,
+  event = TCGA_BRCA_clinical$status
+)
+
+# Visualizziamo i primi 20
+head(surv_object, 20)
+```
+
+L'output (es. **1477+**) indica un paziente seguito per 1477 giorni e **censurato** (vivo all'ultimo follow-up). **883** indica un paziente deceduto (**evento**) al giorno 883.
+
+# Analisi Descrittiva
+
+La **curva di Kaplan-Meier** è un grafico che mostra la probabilità di sopravvivenza stimata sull'asse Y in funzione del tempo sull'asse X.
+
+-   **Funzione a gradini:** La curva è piatta tra un evento e l'altro e scende verticalmente solo nei momenti in cui si verificano uno o più eventi. L'altezza del "gradino" verso il basso dipende dal numero di eventi rispetto al numero di persone a rischio in quel momento.
+
+-   **Inizio al 100%:** Al tempo 0, la probabilità di sopravvivenza è 1 (o 100%), poiché nessun evento si è ancora verificato.
+
+-   **Indicatori di censura:** I tempi in cui i soggetti vengono censurati sono indicati sulla curva con piccoli segni per mostrare dove l'informazione è stata persa senza che si verificasse un evento.
+
+## Kaplan-Meier Globale
+
+```{r km_global}
+fit_km_global = survfit(
+  surv_object ~ 1,
+  data = TCGA_BRCA_clinical
+)
+```
+
+```{r kmg_plot, fig.height=5, fig.width=8, message=FALSE, warning=FALSE}
+ggsurvplot(
+  fit_km_global,
+  data = TCGA_BRCA_clinical,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  title = "Curva di Sopravvivenza Globale (TCGA-BRCA)",
+  xlab = "Tempo (Giorni)"
+)
+```
+
+## Kaplan-Meier Stratificata
+
+Creare curve separate per diversi gruppi ci permette di confrontare l'andamento della sopravvivenza rispetto una condizione (trattamento, stadiazione, sano vs malato).\
+Oltre ad una valutazione visiva, il **log-rank test** ci permette di stabilire se la differenza tra le curve è significativa.
+
+La curva che rimane costantemente **sopra** l' altra rappresenta il gruppo con la sopravvivenza migliore (cioè una minore probabilità di sperimentare l'evento in ogni dato momento).
+
+### Radioterapia
+
+Stratifichiamo i pazienti rispetto il dato clinico radioterapia (yes/no).
+
+```{r km_rad}
+#Rimuoviamo i pazienti con il dato clinico mancante
+print(paste("NA radiation_therapy:", sum(is.na(TCGA_BRCA_clinical$radiation_therapy))))
+TCGA_BRCA_clinical_clean = TCGA_BRCA_clinical[!is.na(TCGA_BRCA_clinical$radiation_therapy), ]
+
+fit_km_radiation_therapy = survfit(
+  Surv(overall_survival, status) ~ radiation_therapy,
+  data = TCGA_BRCA_clinical_clean
+)
+```
+
+```{r kmrad_plot, fig.height=5, fig.width=8, message=FALSE, warning=FALSE}
+ggsurvplot(
+  fit_km_radiation_therapy,
+  conf.int = TRUE,
+  data = TCGA_BRCA_clinical_clean,
+  pval = TRUE,      #log-rank test
+  risk.table = TRUE,   #tabella dei pazienti a rischio ad ogni intervallo di tempo
+  legend.title = "Radioterapia"
+)
+```
+
+### Stadio patologico
+
+```{r km_pat}
+print(paste("NA pathologic_stage:", sum(is.na(TCGA_BRCA_clinical$pathologic_stage))))
+
+TCGA_BRCA_clinical_clean2 = TCGA_BRCA_clinical[!is.na(TCGA_BRCA_clinical$pathologic_stage), ]
+
+fit_km_path_stage = survfit(
+  Surv(overall_survival, status) ~ pathologic_stage,
+  data = TCGA_BRCA_clinical_clean2
+)
+```
+
+```{r kmp_plot, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+ggsurvplot(
+  fit_km_path_stage,
+  conf.int = TRUE,
+  data = TCGA_BRCA_clinical_clean2,
+  risk.table = TRUE,
+  legend.title = "Stadiazione"
+)
+```
+
+# Modelli di regressione: Cox Univariata
+
+```{r cox}
+#Valutiamo l'impatto della variabile 'radiation_therapy'
+fit_cox_rad = coxph(
+  Surv(overall_survival, status) ~ radiation_therapy,
+  data = TCGA_BRCA_clinical_clean
+)
+
+summary(fit_cox_rad)
+```
+
+**Interpretazione:** `exp(coef)` è l'**Hazard Ratio (HR)**.\
+Un HR \< 1 è protettivo verso l'evento. Un HR di 0.5758 significa che il gruppo "Radiation Therapy yes" ha un rischio di morte 0.5758 volte, in ogni istante, rispetto al gruppo "Radiation Therapy no".
+
+# RNA sequencing
+
+L’RNA-seq (RNA sequencing) è una tecnologia che permette di misurare l’espressione di tutti i geni rilevabili in una cellula, in un tessuto o in un organismo.
+
+## Come funziona (a grandi linee)?
+
+![](images/rna-seq.png)
+
+1.  Estrazione dell’RNA dalle cellule o dai tessuti (es. da campioni tumorali e/o sani).
+
+2.  Conversione in cDNA e sequenziamento (es. Illumina Hi-seq). Si ottengono milioni di “reads”.
+
+3.  Allineamento delle reads al genoma di riferimento.
+
+    4.  Conteggio delle reads per gene -\> si ottiene una matrice di espressione:
+
+        |        | Paziente 1 | Paziente 2 | Paziente 3 | ... |
+        |--------|------------|------------|------------|-----|
+        | gene 1 | 456        | 38         | 35         |     |
+        | gene 2 | 12         | 11         | 77         |     |
+        | ...    |            |            |            |     |
+
+## Survival Analysis & RNA-seq
+
+-   **Dati RNA-seq:** Misurano l'espressione di \~20.000 geni.
+-   **Obiettivo:** Trovare geni la cui espressione (alta o bassa) è associata alla sopravvivenza.
+-   **Problema:** Alta dimensionalità (p \>\> n).
+-   **Soluzione:** Modelli di Cox penalizzati.
+
+# Download Dati RNA-seq
+
+```{r RNAdata}
+#Query per i dati di RNA-seq sequenziati con Illumina HiSeq
+TCGA_BRCA_RNA = getLinkedOmicsData(
+  project = "TCGA-BRCA",
+  dataset = "RNAseq (HiSeq, Gene level)"
+)
+
+#Manipolazione del dataset per avere il dataframe campioni x geni
+TCGA_BRCA_RNA = t(TCGA_BRCA_RNA) %>%
+  as.data.frame() %>%
+  janitor::row_to_names(row_number = 1) %>%
+  mutate(across(everything(), ~ type.convert(as.character(.), as.is = TRUE)))
+
+dim(TCGA_BRCA_RNA)
+```
+
+```{r cleanRNA}
+# Selezioniamo solo i pazienti a cui sono associati dati di sopravvivenza
+matching_ids = intersect(rownames(TCGA_BRCA_clinical), rownames(TCGA_BRCA_RNA))
+BRCA_RNA = TCGA_BRCA_RNA[matching_ids,]
+BRCA_clin = TCGA_BRCA_clinical[matching_ids,]
+```
+
+# Modelli di regressione: Cox Multivariata
+
+## Gene signature
+
+Genericamente prima di effettuare un'analisi multivariata si riducono i predittori con uno screening delle variabili in modo da avere $d < p$ predittori informativi.
+
+Selezioniamo alcuni geni che dalla letteratura sappiamo essere markers per il Breast Cancer: Breast Cancer gene 1 (BRCA1), Breast Cancer gene 2 (BRCA2), Estrogen Receptor Alpha (ESR1), Progesterone Receptor (PGR), Human Epidermal Growth Factor Receptor 2 (ERBB2)
+
+```{r sig}
+gene_sign = c("BRCA1", "BRCA2", "ESR1", "PGR", "ERBB2")
+BRCA_sign = BRCA_RNA[,gene_sign]
+
+dim(BRCA_sign)
+```
+
+```{r coxsig}
+fit_cox_sign = coxph(
+  Surv(BRCA_clin$overall_survival, BRCA_clin$status) ~ 
+    BRCA1 + BRCA2 + ESR1 + PGR + ERBB2,
+  data = BRCA_sign
+)
+
+summary(fit_cox_sign)
+```
+
+Da questa analisi evinciamo che l'unico gene con p-value inferiore alla soglia convenzionale di $\alpha=0.05$, è **PGR**. La sua espressione è statisticamente associata alla sopravvivenza globale.
+
+In particolare, guardando a $exp(coef)$, per ogni aumento unitario nell'espressione di PGR, il rischio di morte viene moltiplicato per **0.9333**, mantenute costanti le altre variabili.
+
+### Indice Prognostico
+
+L'indice prognostico è il predittore lineare PI = (coef_gene1 \* expr_gene1) + (coef_gene2 \* expr_gene2)...
+
+```{r pi_sig, fig.width=8, fig.height=5}
+merged_data = cbind(BRCA_sign, BRCA_clin)
+
+prognostic_index = predict(
+  fit_cox_sign,
+  type = "lp", #linear prediction
+  newdata = merged_data
+)
+
+# Stratifichiamo i pazienti in base alla mediana del PI
+merged_data$risk_group = ifelse(
+  prognostic_index > median(prognostic_index, na.rm=TRUE),
+  "Alto Rischio",
+  "Basso Rischio"
+)
+```
+
+```{r km_sig, fig.width=8, fig.height=5}
+fit_km_risk = survfit(Surv(overall_survival, status) ~ risk_group, data = merged_data)
+
+ggsurvplot(fit_km_risk,conf.int = TRUE, pval = TRUE, title = "Stratificazione per gruppi di rischio (Cox-Multivariata 5 Geni)")
+```
+
+# Modelli di regressione: Cox Multivariata Penalizzata
+
+## glmnet
+
+Perché `glmnet`?
+
+-   **Problema (p \> n):** Quando abbiamo più predittori (geni, $p$) che osservazioni (pazienti, $n$), la regressione di Cox standard fallisce.
+
+-   **Soluzione: Regressione Penalizzata.** `glmnet` implementa vari tipi di penalizzazioni, tra cui:
+
+    -   **LASSO (alpha=1):** Restringe i coefficienti e fa *selezione* delle variabili (molti coefficienti diventano zero).
+    -   **Ridge (alpha=0):** Restringe i coefficienti ma *mantiene* tutte le variabili.
+    -   **Elastic Net (alpha tra 0 e 1):** Un mix. Seleziona le variabili ed è più stabile di LASSO se i geni sono molto correlati.
+
+    $$
+    \hat{\beta} = \arg\max_{\beta} \left\{ \ell(\beta) - \lambda P(\beta) \right\}
+    $$
+
+    $$
+    P(\beta) = \alpha \|\beta\|_1 + (1-\alpha)\|\beta\|_2^2
+    $$
+
+## Cox LASSO
+
+Da uno screening delle variabili abbiamo identificato i geni più variabili (i.e. potenzialmente più informativi).
+
+```{r hv, warning=FALSE}
+#Selezioniamo HV_genes (Highly Variable Genes)
+HV_genes = read.csv("HV_genes.csv")$x
+BRCA_HV = BRCA_RNA[, HV_genes]
+
+# glmnet richiede una matrice per x e un oggetto Surv per y
+x_matrix = as.matrix(BRCA_HV)
+y_surv = Surv(BRCA_clin$overall_survival, BRCA_clin$status)
+
+#glmnet applica LASSO impostando $alpha=1$
+cvfit_lasso = cv.glmnet(
+  x_matrix, y_surv,
+  family = "cox", alpha = 1,
+  nfolds = 5, # cv.glmnet trova il lambda ottimale con Cross-Validation (5-folds)
+  type.measure = "C" # usiamo come metrica di valutazione il C-index
+)
+```
+
+```{r lasso_plot, fig.width=8, fig.height=5}
+plot(cvfit_lasso)
+```
+
+```{r var_lasso}
+#Variabili selezionate
+coefficients_lasso = coef(cvfit_lasso, s="lambda.min")
+selected_features = rownames(coefficients_lasso)[coefficients_lasso[,1] != 0]
+length(selected_features)
+print(selected_features[1:20])
+```
+
+## Cox Elastic Net
+
+`glmnet` non ha un sistema interno per il tuning di $alpha$ nel caso dell' EN, quindi è possibile scrivere un ciclo per testare diversi alpha tra 0 e 1.
+
+```{r}
+#alpha = seq(0.1, 1, length = 10)
+#fitEN = list()
+#for (i in 1:length(alpha)) {
+#fitEN[[i]] = cv.glmnet(x_matrix, y_surv, family = "cox", alpha = alpha[i], nfolds = 5, type.measure = "C")
+#}
+
+# Troviamo il modello (alpha) con il C-index medio (cvm) migliore
+#idx = which.max(sapply(fitEN, function(xx) {
+#xx$cvm[xx$lambda == xx$lambda.min]
+#}))
+#cvfit_EN = fitEN[[idx]]
+#best_alpha = alpha[idx]
+```
+
+Per semplificare impostiamo $alpha=0.5$
+
+```{r coxEN}
+cvfit_EN = cv.glmnet(
+  x_matrix, y_surv,
+  family="cox", alpha=0.5,
+  nfolds=5, type.measure="C"
+)
+```
+
+```{r plotEN}
+plot(cvfit_EN)
+```
+
+```{r varEN}
+coefficients_EN = coef(cvfit_EN, s="lambda.min")
+selected_features_EN = rownames(coefficients_EN)[coefficients_EN[,1] != 0]
+
+length(selected_features_EN)
+print(selected_features_EN[1:30])
+```
+
+## Confronto LASSO-Elastic Net
+
+Calcoliamo i Prognostic Index (usando *lambda.min*, il lambda ottimale)
+
+```{r pi}
+lp_lasso = predict(cvfit_lasso, newx=x_matrix, s="lambda.min", type="link")
+lp_en = predict(cvfit_EN, newx=x_matrix, s="lambda.min", type="link")
+
+# Stratifichiamo i gruppi di rischio
+merged_data$risk_group_lasso = ifelse(lp_lasso > median(lp_lasso), "High", "Low")
+merged_data$risk_group_enet  = ifelse(lp_en > median(lp_en), "High", "Low")
+```
+
+### K-M (LASSO vs EN)
+
+```{r km_lasso, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+fit_km_lasso = survfit(Surv(overall_survival, status) ~ risk_group_lasso, data=merged_data)
+ggsurvplot(fit_km_lasso, conf.int = TRUE, pval=TRUE, risk.table = TRUE, title="LASSO (alpha=1)", legend="none")
+```
+
+```{r km_EN, fig.height=6, fig.width=10, message=FALSE, warning=FALSE}
+fit_km_enet = survfit(Surv(overall_survival, status) ~ risk_group_enet, data=merged_data)
+ggsurvplot(fit_km_enet, conf.int = TRUE, pval=TRUE, risk.table = TRUE, title="Elastic Net (alpha=0.5)", legend="none")
+```
+
+# Domande?
+
+Grazie per l’attenzione!
+
+Per approfondimenti e maggiori informazioni su metodi avanzati per l'analisi di sopravvivenza siete invitati alla *Poster Session*: **Bridging Multi-omics Data ad Survival Analysis with Omics2Surv.**
+
+# Esercizi
+
+## 1 Stratifica i pazienti per classificazione istologica
+
+1.  Filtra i pazienti con dati mancanti per la variabile "`PAM50`".
+
+2.  Fitta il modello.
+
+3.  Visualizza la kaplan meier stratificata.
+
+4.  Interpreta il log-rank test.
+
+## 2 Costruisci un modello multivariato includendo oltre alla gene signature un dato clinico
+
+1.  Includi la variabile "`radiation_therapy`" alla cox multivariata.
+
+2.  Interpreta i risultati.
+
+3.  Stratifica per gruppi di rischio.
+
+## 3 Effettua il tuning di alpha per Elastic Net
+
+Prova a lanciare il codice per il tuning di alpha.
+
+# Ringraziamenti
+
+This tutorial is part of the dissemination activities supported by the P2022BLN38 project Computational Approaches for the integration of multi-omics data – funded by European Union – Next Generation EU within the PRIN 2022 PNRR program (D.D. 1409 del 14-09-2022 Ministero dell’Università e della Ricerca) CUP B53D23027810001.
+
+![](images/banner.png){width="855"}
