@@ -10,7 +10,7 @@ https://sites.google.com/view/caimod-projectprin-2022pnrr/two-days-on-caimod
 * Andrea Raiconi<sup>2</sup>
 * Claudia Angelini<sup>2</sup>
 
-1 Dipartimento di Ingegneria Chimica, dei Materiali e della Produzione Industriale, Università degli Studi di Napoli "Federico II", Napoli
+1 Dipartimento di Ingegneria Chimica, dei Materiali e della Produzione Industriale, Università degli Studi di Napoli "Federico II", Napoli\
 2 Istituto per le Applicazioni del Calcolo "Mauro Picone", Consiglio Nazionale delle Ricerche, Napoli
   
 ## Descrizione
