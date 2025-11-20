@@ -6,9 +6,12 @@ https://sites.google.com/view/caimod-projectprin-2022pnrr/two-days-on-caimod
 
 ## Relatori
 
-* Francesca Calanca, Institute for Applied Mathematics "M. Picone", IAC-CNR, Naples, Italy
-* Andrea Raiconi, Institute for Applied Mathematics "M. Picone", IAC-CNR, Naples, Italy
-* Claudia Angelini, Institute for Applied Mathematics "M. Picone", IAC-CNR, Naples, Italy
+* Francesca Calanca<sup>1,2</sup>
+* Andrea Raiconi<sup>2</sup>
+* Claudia Angelini<sup>2</sup>
+
+1 Dipartimento di Ingegneria Chimica, dei Materiali e della Produzione Industriale, Università degli Studi di Napoli "Federico II", Napoli
+2 Istituto per le Applicazioni del Calcolo "Mauro Picone", Consiglio Nazionale delle Ricerche, Napoli
   
 ## Descrizione
 
