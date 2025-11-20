@@ -54,3 +54,9 @@ In R
 setwd(path della cartella)
 ```
 Apri il file .Rmd
+
+## Ringraziamenti
+This tutorial is part of the dissemination activities supported by the P2022BLN38 project Computational
+approaches for the integration of multi-omics data – funded by European Union – Next Generation EU
+within the PRIN 2022 PNRR program (D.D. 1409 del 14-09-2022 Ministero dell’Università e della
+Ricerca) CUP B53D23027810001.
