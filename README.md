@@ -55,6 +55,25 @@ setwd(path della cartella)
 ```
 Apri il file .Rmd
 
+## Pacchetti R richiesti
+
+```{r packages, echo=TRUE, message=FALSE, warning=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("TCGAbiolinks")
+
+install.packages(c(
+  "reader",
+  "dplyr",
+  "janitor",
+  "ggplot2",
+  "survival",
+  "survminer",
+  "glmnet"
+))
+```
+
 ## Ringraziamenti
 This tutorial is part of the dissemination activities supported by the P2022BLN38 project Computational
 approaches for the integration of multi-omics data – funded by European Union – Next Generation EU
